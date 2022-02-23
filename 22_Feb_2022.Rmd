@@ -1,0 +1,311 @@
+---
+title: "Tidy Tuesday: UN World Freedom Index"
+author: "Matthew Kusen"
+date: "2/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages
+library(tidytuesdayR)
+library(ggmap)
+library(sf)
+library(tidyverse)
+library(here)
+library(sp)
+library(reactablefmtr)
+library(janitor)
+library(hrbrthemes)
+
+```
+
+
+```{r data input, include=FALSE}
+#load tt data
+tuesdata <- tidytuesdayR::tt_load(2022, week = 8)
+freedom <- tuesdata$freedom %>% clean_names()
+
+#load world map data
+map_world <- map_data("world") %>% filter(region != "Antarctica") %>% rename(country = region)
+```
+
+
+## Tidy Tuesday: 
+
+The data this week comes from Freedom House and the United Nations by way of Arthur Cheib.
+
+Freedom in the World, Freedom House's flagship publication, is the standard-setting comparative assessment of global political rights and civil liberties. Published annually since 1972, the survey ratings and narrative reports on 195 countries and 15 related and disputed territories are used by policymakers, the media, international corporations, civic activists, and human rights defenders.
+
+https://github.com/rfordatascience/tidytuesday/blob/master/data/2022/2022-02-22/readme.md 
+
+
+### Data Cleaning
+
+```{r data cleaning and matching, include = FALSE}
+#review country names to match between the two datasets
+length(unique(as.character(map_world$country)))-length(unique(as.character(freedom$country)))
+
+# unique(as.character(freedom$country))
+map_names = as_tibble(unique(as.character(map_world$country)))
+
+#need to rename map names that do not match
+rename = setdiff(freedom$country,map_world$country)
+rename
+freedom$country <- recode(freedom$country,
+                          "Bolivia (Plurinational State of)" = "Bolivia",
+                          "Brunei Darussalam" = "Brunei",
+                          "Eswatini" = "Swaziland",
+                          "Czechia" = "Czech Republic",
+                          "Lao People's Democratic Republic" = "Laos",
+                          "Iran (Islamic Republic of)" = "Iran",
+                          "Republic of Korea" = "South Korea",
+                          "Democratic People's Republic of Korea" = "North Korea",
+                          "United States of America" = "USA",
+                         "United Kingdom of Great Britain and Northern Ireland" = "UK",
+                         "Congo" = "Republic of Congo",
+                         "Antigua and Barbuda" = "Antigua",
+                         "CÃƒÂ´te dÃ¢â‚¬â„¢Ivoire" = "Ivory Coast",
+                         "Trinidad and Tobago" = "Trinidad",
+                         "Saint Kitts and Nevis" = "Saint Kitts",
+                         "Saint Vincent and the Grenadines" = "Saint Vincent",
+                         "Northern Cyprus" = "Cyprus",
+                         "Micronesia (Federated States of)" = "Micronesia",
+                         "Republic of Moldova" = "Moldova",
+                         "Russian Federation" = "Russia",
+                         "Syrian Arab Republic" = "Syria",
+                         "United Republic of Tanzania" = "Tanzania",
+                         "Venezuela (Bolivarian Republic of)" = "Venezuela",
+                         "Viet Nam" = "Vietnam")
+freedom$status = as_factor(freedom$status)
+```
+
+**Data Dictionary**
+CL	=	Civil Liberties
+PR	= Political rights
+Status	=	Status (Free F, Not Free NF, Partially Free PF)
+is_ldc	=	Is a least developed country (binary 0/1)
+
+
+```{r EDA}
+#include aggregate score
+freedom = freedom %>% mutate(agg_score = (cl + pr)/2)
+#filter for years 2000, 2010 and 2020 for maps
+freedom_10_20 = freedom %>% 
+    filter(year == "2020"|year == "2010") %>% 
+    pivot_wider(names_from = "year",
+            values_from = c("cl","pr","agg_score","status")) %>% 
+    mutate(change_10_20 = agg_score_2020 - agg_score_2010)
+
+freedom_00_20 = freedom %>% 
+    filter(year == "2020"|year == "2000") %>% 
+    pivot_wider(names_from = "year",
+            values_from = c("cl","pr","agg_score","status")) %>% 
+    mutate(change_00_20 = agg_score_2020 - agg_score_2000)
+
+```
+
+## Graph 1: Freedome Ranking by year and region (# of countries)
+
+```{r region}
+#by number
+by_region = freedom %>% 
+    group_by(region_name,year) %>% 
+    summarize(free = sum(status == "F"),
+            not_free = sum(status == "NF"),
+            part_free = sum(status == "PF"),
+            total = n(),
+            perc_free = free / total,
+            perc_not_free = not_free / total,
+            perc_part_free = part_free / total) %>% 
+    pivot_longer(free:part_free,
+                 values_to = "freedom_rating",
+                 names_to = 'type')
+
+plot_region <- ggplot(by_region) +
+  aes(x = year, y = freedom_rating, colour = region_name) +
+  geom_line(size = 0.5) +
+  scale_color_hue(direction = 1) +
+  theme_minimal() +
+  facet_wrap(vars(type))+
+    labs(color="Region",
+       title = "World Freedom Index: Freedom Rankings",
+       subtitle = "    By Freedom Type, Year and Region ",
+       caption = "Created by Matthew Kusen - @mkusen \n
+       data source: Freedom House, United Nations \n #TidyTuesday")+
+    xlab("Year")+
+    ylab("Percentage of Countries by Freedom Score")+
+    theme(
+        text = element_text(color = "#22211d"),
+        axis.title.x = element_text(hjust = .5,
+                                   size=10,vjust = .5, face="bold"),
+        axis.title.y = element_text(hjust = .5,
+                                   size=10,vjust = .5, face="bold"),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     size = 11),
+        plot.caption = element_text(size = 11,
+                                    hjust = 1)
+    )
+plot_region
+ggsave(plot_region,file="22_feb_22_graphs/plot_region.jpg")
+
+```
+
+## Graph 2: Freedom Ranking by Year and Region as a Percentage
+
+```{r region_percent, echo=FALSE}
+#by percent
+by_region_perc = freedom %>% 
+    group_by(region_name,year) %>% 
+    summarize(free = sum(status == "F"),
+            not_free = sum(status == "NF"),
+            part_free = sum(status == "PF"),
+            total = n(),
+            perc_free = free / total,
+            perc_not_free = not_free / total,
+            perc_part_free = part_free / total) %>% pivot_longer(perc_free:perc_part_free,
+                           values_to = "perc_freedom_rating",
+                           names_to = "type_perc")
+#relevel
+by_region_perc$type_perc = as_factor(by_region_perc$type_perc)
+levels(by_region_perc$type_perc)
+by_region_perc$type_perc = fct_relevel(by_region_perc$type_perc,"perc_not_free",after=Inf)
+
+
+
+graph_region_perc = ggplot(by_region_perc) +
+  aes(x = year, y = perc_freedom_rating, fill = type_perc) +
+  geom_area(alpha=0.6,colour="black")+
+    theme_ipsum()+
+  facet_wrap(vars(region_name),scales = "free")+
+    scale_fill_discrete(type = c("#4daf4a",'#377eb8','#e41a1c'),
+                      labels=c("Free","Partially Free","Not Free"))+
+    labs(fill="Freedom \n Ranking",
+       title = "World Freedom Index: Freedom Rankings",
+       subtitle = "    By Year and Region ",
+       caption = "Created by Matthew Kusen - @mkusen \n
+       data source: Freedom House, United Nations \n #TidyTuesday")+
+    xlab("Year")+
+    ylab("Percentage of Countries by Freedom Score")+
+    theme(
+        legend.position = c(.85,.25),
+        text = element_text(color = "#22211d"),
+        axis.title.x = element_text(hjust = .5,
+                                   size=8,vjust = .5, face="bold"),
+        axis.title.y = element_text(hjust = .5,
+                                   size=10,vjust = .5, face="bold"),
+        axis.text.x = element_text(size=8),
+        axis.text.y = element_text(size=9),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = 'black',
+                                     size = .2),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     size = 11),
+        plot.caption = element_text(size = 11,
+                                    hjust = 1)
+    )
+graph_region_perc
+#r4ds #tidyverse #rstats #datavizgraph_region_perc
+ggsave(graph_region_perc,file="22_feb_22_graphs/WFI_region_year_perc.jpg")
+```
+
+## Geospatial Visualization
+
+### Geo Plot 1: World Freedom Index Changes in Aggregate Score (2000 to 2020)
+
+```{r}
+#Mapping 
+map_world_changed <- left_join(map_world,freedom_00_20,by = "country")
+
+map_00_20_agg <- ggplot() +
+  geom_polygon(data = map_world_changed, 
+               aes(x = long, y = lat,group = group,
+                   fill = change_00_20),color="black") +
+  theme(axis.ticks = element_blank(),axis.text = element_blank(),
+        axis.title = element_blank(),panel.grid = element_blank(),
+        legend.position = c(.15,.3),
+        text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     vjust = 0.1,
+                                     size = 10),
+        plot.caption = element_text(size = 7,
+                                    hjust = 1))+
+  labs(fill="Freedom \n Rating",
+       title = "World Freedom Index: Changes in Aggregate Score (2000 - 2020)",
+       caption = "Created by Matthew Kusen - @mkusen \n
+       data source: Freedom House, United Nations \n #TidyTuesday")+
+    scale_fill_distiller(palette = "RdBu",
+                       direction=1,
+                       breaks = c(-2.5,-1.5,0,1.5,2.5),
+                       labels = c("-2.5","-1.5", "0","+1.5", "+2.5"),
+                       limits = c(min(-2.5), max(2.5)))
+map_00_20_agg
+ggsave(map_00_20_agg,file="22_feb_22_graphs/WFI_changes_00_20.jpg")
+
+```
+
+
+### Geo Plot 2: World Freedom Index 2020 Rating by Country
+
+```{r geo viz 2, echo=FALSE}
+#should filter for 2020 data first
+freedom_2020 = freedom %>% filter(year == "2020")
+
+map_world_joined_2021 <- left_join(map_world,freedom_2020, by = "country")
+map_2020 <- ggplot() +
+  geom_polygon(data = map_world_joined_2021, 
+               aes(x = long, y = lat, group = group,
+                   fill = status)) +
+  theme(axis.ticks = element_blank(),axis.text = element_blank(),
+        axis.title = element_blank(),panel.grid = element_blank(),
+        legend.position = c(.15,.3),
+        text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     vjust = 0.1,
+                                     size = 10),
+        plot.caption = element_text(size = 7,
+                                    hjust = 1))+
+  labs(fill="Freedom \n Rating",
+       title = "World Freedom Index: 2020 Ratings",
+       caption = "Created by Matthew Kusen - @mkusen \n
+       data source: Freedom House, United Nations \n #TidyTuesday")+ 
+  scale_fill_discrete(na.value="grey",
+                      type = c("#4daf4a",'#e41a1c','#377eb8'),
+                      labels=c("Free","Not Free","Partially Free","NA"))
+map_2020
+
+ggsave(map_2020,file="22_feb_22_graphs/freedom_index_2020.jpg")
+
+citation("tidytuesdayR")
+```
+
+
+### 
+
+```{r data wrangling}
+
+```
+
