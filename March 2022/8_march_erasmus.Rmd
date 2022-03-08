@@ -1,0 +1,222 @@
+---
+title: "8_march_erasmus"
+author: "Matthew Kusen"
+date: "3/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+## Subtitle
+
+
+```{r load data packages, include=FALSE}
+
+library(tidytuesdayR)
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(ISOcodes)
+library(MetBrewer)
+library(ggmap)
+library(patchwork)
+library(gghighlight)
+
+#TT data to analyze
+tuesdata <- tidytuesdayR::tt_load(2022, week = 10)
+erasmus <- tuesdata$erasmus %>% clean_names()
+country_codes <- ISO_3166_1 %>% clean_names() %>%
+    select(alpha_2,name) %>% 
+    rename(country_code = "alpha_2")
+
+#map data
+map_world <- map_data("world") %>% filter(region != "Antarctica") %>% rename(country = region)
+
+skim(erasmus)
+```
+
+
+```{r data review}
+erasmus %>% tabyl(academic_year) %>% adorn_totals()
+#erasmus %>% tabyl(sending_country_code)
+erasmus %>% tabyl(special_needs)
+```
+
+
+```{r sending disability data wrangling, include=FALSE}
+sending_country_disability <- erasmus %>% 
+    group_by(sending_country_code) %>% 
+    filter(special_needs == "Yes") %>% 
+    summarize(special_needs_send = n())
+
+sending_country <- erasmus %>% 
+    group_by(sending_country_code) %>% 
+    summarize(total_send=n()) %>% arrange()
+
+disability_sending <- left_join(sending_country_disability,
+                                sending_country,
+                                by="sending_country_code") %>%
+    rename(country_code = sending_country_code) %>% 
+    mutate(perc_send = round((special_needs_send / total_send)*100, digits = 4))
+```
+
+
+```{r receiving disability data, include=FALSE}
+receiving_country_disability <- erasmus %>% 
+    group_by(receiving_country_code) %>% 
+    filter(special_needs == "Yes") %>% 
+    summarize(special_needs_receive=n())
+
+receiving_country<- erasmus %>% 
+    group_by(receiving_country_code) %>% 
+    summarize(total_receive=n())
+
+disability_receiving <- left_join(receiving_country_disability,
+                                receiving_country,
+                                by="receiving_country_code") %>%
+    rename(country_code = receiving_country_code) %>% 
+    mutate(perc_receive = round((special_needs_receive / total_receive)*100, digits = 4))
+```
+
+
+```{r disability data join, include=FALSE}
+disability_data <- full_join(disability_sending,
+                             disability_receiving,
+                             by="country_code") %>% 
+    arrange(country_code) 
+disability_data[disability_data == 'UK'] <- 'GB'
+disability_data[disability_data == 'EL'] <- 'GR'
+
+disability_data <- left_join(disability_data,
+                       country_codes,
+                       by="country_code")
+
+rename = setdiff(disability_data$name,map_world$country)
+rename
+disability_data$name <- recode(disability_data$name,
+                          "Czechia" = "Czech Republic",
+                          "United Kingdom" = "UK",
+                          "Moldova, Republic of" = "Moldova",
+                         "Russian Federation" = "Russia")
+disability_data <- disability_data %>% rename(country = "name")
+#remove Russia
+disability_data <- disability_data %>% filter(country != "Russia")
+disability_data[is.na(disability_data)] = 0
+
+#filter erasmus Europe map data
+europe_map <- map_world %>% filter(country%in%disability_data$country)
+# remove norway artic islands from the map
+europe_map <- europe_map %>% filter(lat < 74)
+
+```
+
+
+```{r student sent overview}
+#Most student sent abroad
+disability_data %>% arrange(desc(total_send)) %>% select(country,total_send,special_needs_send,perc_send)
+#Most persons with disability sent abroad
+disability_data %>% arrange(desc(special_needs_send)) %>% select(country,total_send,special_needs_send,perc_send)
+#highest perentage of students with disability sent abroad
+disability_data %>% arrange(desc(perc_send)) %>% select(country,total_send,special_needs_send,perc_send)
+```
+
+
+
+
+```{r student received overview}
+#Most student received from abroad
+disability_data %>% arrange(desc(total_receive)) %>% select(country,total_receive,special_needs_receive,perc_receive)
+#Most persons with disability received from  abroad
+disability_data %>% arrange(desc(special_needs_receive)) %>% select(country,total_receive,special_needs_receive,perc_receive)
+#highest perentage of students with disability received from abroad
+disability_data %>% arrange(desc(perc_receive)) %>% select(country,total_receive,special_needs_receive,perc_receive)
+```
+
+
+## Map disability data
+
+
+```{r sent disability map, echo=FALSE}
+map_europe_disability <- left_join(europe_map,disability_data,by = "country")
+
+
+map_disability_send <- ggplot() +
+  geom_polygon(data = map_europe_disability, 
+               aes(x = long, y = lat, group = group,
+                   fill = perc_send)) +
+  theme(axis.ticks = element_blank(),axis.text = element_blank(),
+        axis.title = element_blank(),panel.grid = element_blank(),
+        legend.position = "bottom",
+        text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     vjust = 0.1,
+                                     size = 10),
+        plot.caption = element_text(size = 7,
+                                    hjust = 1))+
+  labs(fill="Percentage with a \n Disability Sent",
+       title = "Percentage of Erasmus students \n received from abroad with \n a Disability (2014-2020)")+
+    scale_fill_gradientn(colors = met.brewer("VanGogh3",type="continuous"),
+                         breaks=c(0,2,4,6),
+                         labels= c("0","2%","4%","6%"))
+map_disability_send
+
+```
+
+
+
+
+```{r receive disability map, echo=FALSE}
+map_disability_receive <- ggplot() +
+  geom_polygon(data = map_europe_disability, 
+               aes(x = long, y = lat, group = group,
+                   fill = perc_receive)) +
+  theme(axis.ticks = element_blank(),axis.text = element_blank(),
+        axis.title = element_blank(),panel.grid = element_blank(),
+        legend.position = "bottom",
+        text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+        plot.title = element_text(hjust = 0.5, 
+                                  vjust = 0.1,
+                                  size = 12, 
+                                  face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     vjust = 0.1,
+                                     size = 10),
+        plot.caption = element_text(size = 7,
+                                    hjust = 1))+
+  labs(fill="Percentage with a \n Disability Received",
+       title = "Percentage of Erasmus students \n going abroad who have \n a Disability (2014-2020)",
+       caption = "Created by Matthew Kusen - @mkusen \n
+       data source: Erasmus Student Mobility - https://data.europa.eu \n #TidyTuesday")+
+    scale_fill_gradientn(colors = met.brewer("Hokusai2",type="continuous"),
+                         labels= c("0", "2%", "4%", "6%"))
+map_disability_receive
+```
+
+## Combine both maps
+
+
+```{r}
+library(patchwork)
+map_disability_send + map_disability_receive
+```
+
+
+```{r}
+citation("tidytuesdayR")
+
+```
+
