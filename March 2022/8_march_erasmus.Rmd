@@ -1,5 +1,5 @@
 ---
-title: "8_march_erasmus"
+title: "Tidy Tuesday: Erasmus Data"
 author: "Matthew Kusen"
 date: "3/8/2022"
 output: html_document
@@ -165,7 +165,7 @@ map_disability_send <- ggplot() +
         plot.caption = element_text(size = 7,
                                     hjust = 1))+
   labs(fill="Percentage with a \n Disability Sent",
-       title = "Percentage of Erasmus students \n received from abroad with \n a Disability (2014-2020)")+
+       title = "Percentage of Erasmus students \n going abroad who have \n a Disability (2014-2020)")+
     scale_fill_gradientn(colors = met.brewer("VanGogh3",type="continuous"),
                          breaks=c(0,2,4,6),
                          labels= c("0","2%","4%","6%"))
@@ -198,7 +198,7 @@ map_disability_receive <- ggplot() +
         plot.caption = element_text(size = 7,
                                     hjust = 1))+
   labs(fill="Percentage with a \n Disability Received",
-       title = "Percentage of Erasmus students \n going abroad who have \n a Disability (2014-2020)",
+       title = "Percentage of Erasmus students \n received from abroad who have \n a Disability (2014-2020)",
        caption = "Created by Matthew Kusen - @mkusen \n
        data source: Erasmus Student Mobility - https://data.europa.eu \n #TidyTuesday")+
     scale_fill_gradientn(colors = met.brewer("Hokusai2",type="continuous"),
